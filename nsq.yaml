@@ -1,0 +1,200 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: nsqlookupd
+  labels:
+    app: nsqlookupd
+    group: node-backend
+spec:
+  selector:
+    app: nsqlookupd
+    group: node-backend
+  type: NodePort
+  ports:
+  - port: 4160
+    targetPort: 4160
+    name: tcp
+  - port: 4161
+    targetPort: 4161
+    name: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nsqlookupd
+  labels:
+    app: nsqlookupd
+    group: node-backend
+spec:
+  selector:
+    matchLabels:
+      app: nsqlookupd
+      group: node-backend
+  template:
+    metadata:
+      labels:
+        app: nsqlookupd
+        group: node-backend
+    spec:
+      containers:
+      - name: nsqlookupd
+        image: nsqio/nsq
+        resources:
+          limits:
+            memory: "128Mi"
+            cpu: "500m"
+        ports:
+        - containerPort: 4160
+          name: tcp
+        - containerPort: 4161
+          name: http
+        livenessProbe:
+          httpGet: 
+            path: /ping
+            port: http
+          initialDelaySeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /ping
+            port: http
+          initialDelaySeconds: 5
+        command:
+          - /nsqlookupd
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nsqd
+  labels:
+    app: nsqd
+    group: node-backend
+spec:
+  clusterIP: None
+  selector:
+    app: nsqd
+    group: node-backend
+  ports:
+  - port: 4150
+    targetPort: 4150
+    name: tcp
+  - port: 4151
+    targetPort: 4151
+    name: http
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: nsqd
+  labels:
+    app: nsqd
+    group: node-backend
+spec:
+  serviceName: nsqd
+  replicas: 4
+  selector:
+    matchLabels:
+      app: nsqd
+      group: node-backend
+  template:
+    metadata:
+      labels:
+        app: nsqd
+        group: node-backend
+    spec:
+      containers:
+      - name: nsqd
+        image: nsqio/nsq
+        resources:
+          limits:
+            memory: "128Mi"
+            cpu: "500m"
+        ports:
+        - containerPort: 4150
+          name: tcp
+        - containerPort: 4151
+          name: http
+        livenessProbe:
+          httpGet:
+            path: /ping
+            port: http
+          initialDelaySeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /ping
+            port: http
+          initialDelaySeconds: 5
+        command: ["/bin/sh","-c"]
+        args: ["/nsqd --lookupd-tcp-address=nsqlookupd.default.svc.cluster.local:4160 --broadcast-address=${HOSTNAME}.nsqd.default.svc.cluster.local"]
+        volumeMounts:
+          - name: dataDir
+            mountPath: /data
+      volumes:
+        - name: dataDir
+          persistentVolumeClaim:
+            claimName: dataDirPVC
+  volumeClaimTemplates:
+    - metadata:
+        name: dataDirPVC
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+        
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nsqadmin
+  labels:
+    app: nsqadmin
+    group: node-backend
+spec:
+  selector:
+    app: nsqadmin
+    group: node-backend
+  ports:
+  - port: 4170
+    targetPort: 4170
+    name: tcp
+  - port: 4171
+    targetPort: 4171
+    name: http
+  type: NodePort
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nsqadmin
+  labels:
+    app: nsqadmin
+    group: node-backend
+spec:
+  selector:
+    matchLabels:
+      app: nsqadmin
+      group: node-backend
+  template:
+    metadata:
+      labels:
+        app: nsqadmin
+        group: node-backend
+    spec:
+      containers:
+      - name: nsqadmin
+        image: nsqio/nsq
+        resources:
+          limits:
+            memory: "128Mi"
+            cpu: "500m"
+        ports:
+        - containerPort: 4170
+          name: tcp
+        - containerPort: 4171
+          name: http
+        command:
+          - /nsqadmin
+          - --lookupd-http-address
+          - nsqlookupd.default.svc.cluster.local:4161
